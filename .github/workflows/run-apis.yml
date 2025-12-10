@@ -16,27 +16,43 @@ jobs:
           AUTH_LINE=$(cat auth_file)
           echo "AUTH_LINE=$AUTH_LINE" >> $GITHUB_ENV
 
-      - name: Execute API requests from file
+      - name: Run API calls safely
+        shell: bash
         run: |
           mkdir -p results
 
           API_FILE="api_requests"
 
-          if [ ! -f "$API_FILE" ]; then
-            echo "ERROR: $API_FILE not found!"
-            exit 1
-          fi
-
-          echo "Using API File: $API_FILE"
+          # Convert CRLF → LF to prevent bash errors
+          sed -i 's/\r$//' "$API_FILE"
 
           counter=1
+          buffer=""
 
-          # Split commands by blank line
-          csplit -f cmd_ "$API_FILE" '/^$/' '{*}' || true
+          while IFS= read -r line; do
+            # Empty line = end of a curl block
+            if [[ -z "$line" ]]; then
+              if [[ -n "$buffer" ]]; then
+                echo "Running request #$counter"
+                echo "$buffer" | sed "s|curl|curl -H \"$AUTH_LINE\"|" > run.sh
+                bash run.sh > "results/output_$counter.json" 2>&1
+                buffer=""
+                counter=$((counter+1))
+              fi
+            else
+              buffer="$buffer"$'\n'"$line"
+            fi
+          done < "$API_FILE"
 
-          for file in cmd_*; do
-            if [ ! -s "$file" ]; then continue; fi;
-
+          # Run the final buffer if no blank line at end
+          if [[ -n "$buffer" ]]; then
             echo "Running request #$counter"
-
-            # Inject full Authorizat
+            echo "$buffer" | sed "s|curl|curl -H \"$AUTH_LINE\"|" > run.sh
+            bash run.sh > "results/output_$counter.json" 2>&1
+          fi
+          
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-results
+          path: results/

@@ -11,37 +11,32 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Read Authorization line as-is
+      - name: Read Authorization header as-is
         run: |
           AUTH_LINE=$(cat auth_file)
           echo "AUTH_LINE=$AUTH_LINE" >> $GITHUB_ENV
 
-      - name: Execute curl commands from api_requests.txt
+      - name: Execute API requests from file
         run: |
           mkdir -p results
+
+          API_FILE="api_requests"
+
+          if [ ! -f "$API_FILE" ]; then
+            echo "ERROR: $API_FILE not found!"
+            exit 1
+          fi
+
+          echo "Using API File: $API_FILE"
+
           counter=1
 
-          # Split multi-curl file into separate files on blank lines
-          csplit -f cmd_ api_requests.txt '/^$/' '{*}' || true
+          # Split commands by blank line
+          csplit -f cmd_ "$API_FILE" '/^$/' '{*}' || true
 
           for file in cmd_*; do
-            # Skip empty split files
             if [ ! -s "$file" ]; then continue; fi;
 
             echo "Running request #$counter"
 
-            # Inject the entire Authorization header line after "curl"
-            sed "s|curl|curl -H \"$AUTH_LINE\"|g" "$file" > run.sh
-            chmod +x run.sh
-
-            # Run request and save output
-            bash run.sh > "results/output_$counter.json" 2>&1
-
-            counter=$((counter+1))
-          done
-
-      - name: Upload results
-        uses: actions/upload-artifact@v4
-        with:
-          name: api-results
-          path: results/
+            # Inject full Authorizat
